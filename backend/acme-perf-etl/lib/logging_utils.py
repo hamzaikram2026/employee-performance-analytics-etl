@@ -22,6 +22,7 @@ def get_logger(name: str) -> logging.Logger:
             format="%(asctime)s %(levelname)-7s %(name)s %(message)s",
             stream=sys.stdout,
         )
+        logging.getLogger().setLevel(os.getenv("LOG_LEVEL", "INFO").upper())        
         for noisy in ("botocore", "boto3", "urllib3", "s3transfer"):
             logging.getLogger(noisy).setLevel(logging.WARNING)
         _CONFIGURED = True
