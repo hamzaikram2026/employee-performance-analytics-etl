@@ -258,4 +258,4 @@ tfplan
 .github/instructions/snyk_rules.instructions.md
 .venv/
 sampleData/
-!data/acme-perf-etl/lib/
+!backend/acme-perf-etl/lib/
