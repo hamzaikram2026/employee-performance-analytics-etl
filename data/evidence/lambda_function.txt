@@ -1,0 +1,10 @@
+-------------------------------------------------------
+|                     GetFunction                     |
++---------+-------------------------------------------+
+|  handler|  function.handler                         |
+|  memory |  128                                      |
+|  name   |  coding-workshop-acme-perf-etl-abcd1234   |
+|  runtime|  python3.13                               |
+|  state  |  Active                                   |
+|  timeout|  300                                      |
++---------+-------------------------------------------+

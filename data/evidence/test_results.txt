@@ -83,8 +83,8 @@ lib/contracts.py           7      0   100%
 lib/gold.py              149      4    97%   46, 253, 305-306
 lib/logging_utils.py      49      1    98%   50
 lib/silver.py            126      5    96%   31, 35, 174, 186-187
-lib/storage.py            91      2    98%   44, 126
+lib/storage.py           100      2    98%   47, 136
 lib/validation.py         81      0   100%
 ----------------------------------------------------
-TOTAL                    614     16    97%
-======================= 63 passed, 1 deselected in 9.19s =======================
+TOTAL                    623     16    97%
+====================== 63 passed, 1 deselected in 10.47s =======================

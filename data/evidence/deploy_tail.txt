@@ -1,0 +1,12 @@
+[0mapi_base_url = ""
+api_endpoints = {
+  "acme-perf-etl" = "http://bw1kuzv7tl2f4oqae50z0mea3kkvatae.lambda-url.us-east-1.localhost.localstack.cloud:4566/"
+}
+jupyter_url = "http://localhost:8888"
+lambda_urls = {
+  "coding-workshop-acme-perf-etl-abcd1234" = "http://bw1kuzv7tl2f4oqae50z0mea3kkvatae.lambda-url.us-east-1.localhost.localstack.cloud:4566/"
+}
+s3_bucket_id = "coding-workshop-website-abcd1234"
+s3_bucket_name = "coding-workshop-website-abcd1234"
+website_url = "http://coding-workshop-website-abcd1234.s3-website.localhost.localstack.cloud:4566"
+INFO: Infrastructure deployment complete!
