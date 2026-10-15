@@ -13,7 +13,7 @@ training and attrition.
 * **Quality:** schema contracts, business rules, quarantine with reasons, row-count reconciliation at every step
 * **Tests:** 71 automated tests + 1 performance benchmark; ~97% coverage; scaling verified at 10× volume
 * **Insights:** [`data/notebooks/performance_insights.ipynb`](../../data/notebooks/performance_insights.ipynb)
-  ([HTML version](../../data/notebooks/performance_insights.html)), 16 Matplotlib charts answering all 7 questions
+  ([HTML version](../../data/notebooks/performance_insights.html)), 15 Matplotlib charts answering all 7 questions
 
 ---
 
@@ -30,7 +30,7 @@ graph LR
         G["Gold<br/>9 business tables"]
     end
     A["_audit<br/>run records + manifests"]
-    NB["Jupyter notebook<br/>7 questions, 16 charts"]
+    NB["Jupyter notebook<br/>7 questions, 15 charts"]
     URL["Lambda Function URL<br/>(public HTTPS)"]
 
     PG --> B
