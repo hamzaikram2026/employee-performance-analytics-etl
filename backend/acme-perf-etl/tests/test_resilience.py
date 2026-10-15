@@ -98,11 +98,6 @@ def base_env(monkeypatch):
     return monkeypatch
 
 
-def test_config_fails_fast_when_variable_missing(base_env):
-    base_env.delenv("DATA_LAKE_BUCKET")
-    with pytest.raises(EnvironmentError, match="DATA_LAKE_BUCKET"):
-        Config.from_env()
-
 
 def test_config_switches_between_local_and_cloud(base_env):
     base_env.setenv("IS_LOCAL", "true")

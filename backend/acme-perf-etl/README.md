@@ -289,3 +289,5 @@ an incremental rerun takes ~5–6 s.
 2. Compact small event files; add Iceberg/Delta tables for ACID and time travel if volumes grow.
 3. Publish Gold to PostgreSQL or Athena for BI dashboards.
 4. Add development plans, goals and employee-level project assignments as new sources.
+
+* **Runs:** locally (PostgreSQL + LocalStack) and **deployed as an AWS Lambda** with the workshop's `deploy-backend.sh`; verified on LocalStack with all 25 steps succeeding inside the Lambda

@@ -2,10 +2,12 @@
 
 Built from backend/_examples/python-service. Runs two ways:
   * Lambda (LocalStack or AWS): handler(event, context), deployed by bin/deploy-backend.sh
-  * Terminal: python function.py [all|bronze|silver|gold]
+  * Terminal: python function.py [all|bronze|silver|gold|load_sources]
 
-Lambda requests choose stages with ?stage=bronze (query string) or {"stage": "bronze"}
-(JSON body). Optional: "full_refresh": true, "bucket": "<data-lake-bucket>".
+Requests choose stages with ?stage=bronze (query string) or {"stage": "bronze"} (JSON body).
+Optional: "full_refresh": true, "bucket": "<data-lake-bucket>".
+{"action": "load_sources"} loads the HR source tables into PostgreSQL/Aurora; it is refused
+over the public Function URL and only runs through an IAM-signed `aws lambda invoke`.
 """
 from __future__ import annotations
 
@@ -23,13 +25,13 @@ if os.getenv("AWS_LAMBDA_FUNCTION_NAME") and os.path.isdir(_DEPS):
     sys.path.insert(0, _DEPS)
 
 from lib import bronze, gold, silver  # noqa: E402
-from lib.config import Config
-from lib.logging_utils import RunAudit, get_logger, log_event
-from lib.storage import DataLake, PostgresSource
+from lib.config import Config  # noqa: E402
+from lib.logging_utils import RunAudit, get_logger, log_event  # noqa: E402
+from lib.source_loader import load_sources  # noqa: E402
+from lib.storage import DataLake, PostgresSource  # noqa: E402
 
 logger = get_logger("acme-perf-etl")
 
-DEFAULT_BUCKET = "acme-perf-datalake-local"
 ALL_STAGES = ("bronze", "silver", "gold")
 
 
@@ -49,7 +51,7 @@ def aggregate_to_gold(cfg: Config, lake: DataLake, audit: RunAudit) -> None:
 
 
 def run_pipeline(stages: list[str], full_refresh: bool = False) -> dict[str, Any]:
-    """Run the requested stages in order; always persist the run audit record."""
+    """Run the requested stages in order; always try to persist the run audit record."""
     cfg = Config.from_env()
     audit = RunAudit(cfg.run_id, cfg.run_ts)
     lake = DataLake(cfg)
@@ -66,25 +68,35 @@ def run_pipeline(stages: list[str], full_refresh: bool = False) -> dict[str, Any
         log_event(logger, "job_crashed", logging.ERROR, error=f"{type(exc).__name__}: {exc}")
         audit.steps.append({"layer": "job", "dataset": "-", "status": "FAILED", "error": str(exc)})
     finally:
-        lake.write_json(audit.to_dict(), f"{cfg.audit_prefix}/runs/{cfg.run_date}/{cfg.run_id}.json")
+        try:
+            lake.write_json(audit.to_dict(), f"{cfg.audit_prefix}/runs/{cfg.run_date}/{cfg.run_id}.json")
+        except Exception as exc:  # e.g. bucket missing: report it, don't crash the response
+            log_event(logger, "audit_write_failed", logging.ERROR, error=f"{type(exc).__name__}: {exc}")
         log_event(logger, "job_finished", run_id=cfg.run_id, status=audit.status, steps=len(audit.steps))
     return audit.to_dict()
 
 
-def parse_request(event: dict | None) -> tuple[list[str], bool]:
-    """Read stage, full_refresh and bucket from a Function URL, API, or direct invocation."""
+def _request_params(event: dict | None) -> dict[str, Any]:
+    """Merge query string, JSON body and direct-invocation keys into one dict."""
     event = event or {}
     params: dict[str, Any] = dict(event.get("queryStringParameters") or {})
     body = event.get("body")
     if body:
         try:
-            params.update(json.loads(body))
+            parsed = json.loads(body)
+            if isinstance(parsed, dict):
+                params.update(parsed)
         except (TypeError, ValueError):
             pass
-    for key in ("stage", "full_refresh", "bucket"):
+    for key in ("stage", "full_refresh", "bucket", "action"):
         if key in event:
             params.setdefault(key, event[key])
+    return params
 
+
+def parse_request(event: dict | None) -> tuple[list[str], bool]:
+    """Read stage, full_refresh and bucket from a Function URL, API, or direct invocation."""
+    params = _request_params(event)
     stage = str(params.get("stage", "all")).lower()
     stages = list(ALL_STAGES) if stage == "all" else [s.strip() for s in stage.split(",") if s.strip()]
     invalid = [s for s in stages if s not in ALL_STAGES]
@@ -106,21 +118,36 @@ def response(status: int, payload: dict) -> dict:
 
 
 def handler(event: dict | None, context: Any) -> dict:
-    """Lambda entry point."""
-    os.environ.setdefault("DATA_LAKE_BUCKET", DEFAULT_BUCKET)
+    """Lambda entry point. Always answers with JSON, even on unexpected errors."""
     try:
-        stages, full_refresh = parse_request(event)
-    except ValueError as exc:
-        return response(400, {"error": str(exc)})
-    try:
+        params = _request_params(event)
+        action = str(params.get("action", "run")).lower()
+
+        if action == "load_sources":
+            if "requestContext" in (event or {}):  # came through the public Function URL
+                return response(403, {"error": "load_sources must be run with an IAM-signed 'aws lambda invoke'"})
+            if params.get("bucket"):
+                os.environ["DATA_LAKE_BUCKET"] = str(params["bucket"])
+            cfg = Config.from_env()
+            return response(200, load_sources(cfg, DataLake(cfg)))
+
+        if action != "run":
+            return response(400, {"error": f"Unknown action '{action}'; use 'run' or 'load_sources'"})
+        try:
+            stages, full_refresh = parse_request(event)
+        except ValueError as exc:
+            return response(400, {"error": str(exc)})
         result = run_pipeline(stages, full_refresh)
-    except EnvironmentError as exc:
-        return response(500, {"error": f"configuration error: {exc}"})
-    return response(200 if result["status"] == "SUCCESS" else 500, result)
+        return response(200 if result["status"] == "SUCCESS" else 500, result)
+    except Exception as exc:  # last resort: never a bare "Internal Server Error"
+        log_event(logger, "handler_crashed", logging.ERROR, error=f"{type(exc).__name__}: {exc}")
+        return response(500, {"error": f"{type(exc).__name__}: {exc}"})
 
 
 if __name__ == "__main__":
-    stage_arg = sys.argv[1] if len(sys.argv) > 1 else "all"
-    result = handler({"stage": stage_arg, "full_refresh": os.getenv("FULL_REFRESH", "false")}, None)
+    arg = sys.argv[1] if len(sys.argv) > 1 else "all"
+    event = ({"action": "load_sources"} if arg == "load_sources"
+             else {"stage": arg, "full_refresh": os.getenv("FULL_REFRESH", "false")})
+    result = handler(event, None)
     print(json.dumps(json.loads(result["body"]), indent=2))
     sys.exit(0 if result["statusCode"] == 200 else 1)

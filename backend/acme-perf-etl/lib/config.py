@@ -29,6 +29,29 @@ def _require(name: str) -> str:
     return value
 
 
+LOCAL_DEFAULT_BUCKET = "acme-perf-datalake-local"
+
+
+def _resolve_bucket(is_local: bool) -> str:
+    """Pick the data lake bucket: DATA_LAKE_BUCKET wins, otherwise derive it.
+
+    In AWS the workshop injects APP_NAME (e.g. coding-workshop-74cbf3a2) and APP_ID (74cbf3a2),
+    and the Lambda role may only use buckets named <project>*<app_id>*, so the lake is
+    <project>-datalake-<app_id>. On LocalStack the documented local bucket is used.
+    """
+    explicit = os.getenv("DATA_LAKE_BUCKET")
+    if explicit:
+        return explicit
+    if is_local:
+        return LOCAL_DEFAULT_BUCKET
+    app_id, app_name = os.getenv("APP_ID"), os.getenv("APP_NAME")
+    if app_id and app_name and app_name.endswith(f"-{app_id}"):
+        return f"{app_name[: -len(app_id) - 1]}-datalake-{app_id}"
+    raise EnvironmentError(
+        "Required environment variable 'DATA_LAKE_BUCKET' is not set "
+        "and APP_ID/APP_NAME are not available to derive it"
+    )
+
 @dataclass(frozen=True)
 class Config:
     """Immutable runtime configuration for one pipeline run."""
@@ -73,7 +96,7 @@ class Config:
             pg_name=_require("POSTGRES_NAME"),
             pg_user=_require("POSTGRES_USER"),
             pg_pass=_require("POSTGRES_PASS"),
-            bucket=_require("DATA_LAKE_BUCKET"),
+            bucket=_resolve_bucket(is_local),
             aws_region=os.getenv("AWS_REGION", "ap-south-1"),
             s3_endpoint=os.getenv("AWS_ENDPOINT_URL") if is_local else None,
             run_date=run_date,
