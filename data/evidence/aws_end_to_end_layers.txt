@@ -1,0 +1,12 @@
+== bronze
+2026-10-16 02:03:40      83695 bronze/employees/year=2026/month=10/day=15/data.parquet
+2026-10-16 02:03:41      29333 bronze/talent_review/year=2026/month=10/day=15/data.parquet
+== silver
+2026-10-16 02:04:26     362894 silver/learning_activity/event_year=2025/data.parquet
+2026-10-16 02:04:26      97542 silver/learning_activity/event_year=2023/data.parquet
+== gold
+2026-10-16 02:04:29       9673 gold/gold_team_performance/data.parquet
+2026-10-16 02:04:30     124867 gold/gold_employee_profile/data.parquet
+== _audit/runs
+2026-10-16 00:58:33       8304 _audit/runs/2026-10-15/98d908d34094.json
+2026-10-16 02:04:30       8302 _audit/runs/2026-10-15/8d92a2cb47be.json
