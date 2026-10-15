@@ -5,6 +5,8 @@ import functools
 import io
 import json
 import logging
+import os
+import tempfile
 import time
 from typing import Any, Callable
 
@@ -21,7 +23,8 @@ from .logging_utils import get_logger, log_event
 logger = get_logger(__name__)
 
 TRANSIENT_S3_ERRORS = (EndpointConnectionError, ConnectionClosedError, ReadTimeoutError)
-
+# fastparquet keeps the Lambda package small (pyarrow alone is ~167 MB, over Lambda's 250 MB limit)
+PARQUET_ENGINE = "fastparquet"
 
 def retry(max_attempts: int = 4, base_delay: float = 0.5, exceptions: tuple = (Exception,)) -> Callable:
     """Retry a call on transient errors with exponential backoff (0.5s, 1s, 2s, ...)."""
@@ -111,14 +114,21 @@ class DataLake:
         self.write_bytes(key, json.dumps(obj, indent=2, default=str).encode("utf-8"))
 
     def write_parquet(self, df: pd.DataFrame, key: str) -> int:
-        buf = io.BytesIO()
-        df.to_parquet(buf, index=False, compression="snappy")
-        self.write_bytes(key, buf.getvalue())
+        """Serialize to Parquet via a temp file (works in Lambda's writable /tmp) and upload."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "data.parquet")
+            df.to_parquet(path, index=False, engine=PARQUET_ENGINE, compression="snappy")
+            with open(path, "rb") as fh:
+                self.write_bytes(key, fh.read())
         return len(df)
 
     def read_parquet(self, key: str) -> pd.DataFrame:
-        return pd.read_parquet(io.BytesIO(self.read_bytes(key)))
-
+        """Download a Parquet object to a temp file and load it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "data.parquet")
+            with open(path, "wb") as fh:
+                fh.write(self.read_bytes(key))
+            return pd.read_parquet(path, engine=PARQUET_ENGINE)
     def read_parquet_prefix(self, prefix: str) -> pd.DataFrame:
         """Read and concatenate every Parquet file under a prefix."""
         keys = [k for k in self.list_keys(prefix) if k.endswith(".parquet")]
