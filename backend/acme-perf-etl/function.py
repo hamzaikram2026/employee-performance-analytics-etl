@@ -4,10 +4,13 @@ Built from backend/_examples/python-service. Runs two ways:
   * Lambda (LocalStack or AWS): handler(event, context), deployed by bin/deploy-backend.sh
   * Terminal: python function.py [all|bronze|silver|gold|load_sources]
 
-Requests choose stages with ?stage=bronze (query string) or {"stage": "bronze"} (JSON body).
-Optional: "full_refresh": true, "bucket": "<data-lake-bucket>".
-{"action": "load_sources"} loads the HR source tables into PostgreSQL/Aurora; it is refused
-over the public Function URL and only runs through an IAM-signed `aws lambda invoke`.
+Actions (query string ?action=..., JSON body, or direct-invocation field):
+  run (default)  run the pipeline; ?stage=all|bronze|silver|gold, &full_refresh=true
+  dashboard      KPIs and chart data from the Gold layer (read-only, public)
+  search         employee search with whitelisted filters (read-only, public)
+  table          preview of a whitelisted table from Aurora or a lake layer (read-only, public)
+  sql            one read-only SQL query on the source database (IAM-signed invoke only)
+  load_sources   load the HR source tables into Aurora (IAM-signed invoke only)
 """
 from __future__ import annotations
 
@@ -25,7 +28,9 @@ if os.getenv("AWS_LAMBDA_FUNCTION_NAME") and os.path.isdir(_DEPS):
     sys.path.insert(0, _DEPS)
 
 from lib import bronze, gold, silver  # noqa: E402
+from lib.admin_sql import run_readonly_sql  # noqa: E402
 from lib.config import Config  # noqa: E402
+from lib.dashboard_api import dashboard_summary, preview_table, search_employees  # noqa: E402
 from lib.logging_utils import RunAudit, get_logger, log_event  # noqa: E402
 from lib.source_loader import load_sources  # noqa: E402
 from lib.storage import DataLake, PostgresSource  # noqa: E402
@@ -33,6 +38,8 @@ from lib.storage import DataLake, PostgresSource  # noqa: E402
 logger = get_logger("acme-perf-etl")
 
 ALL_STAGES = ("bronze", "silver", "gold")
+URL_EVENT_KEYS = {"version", "routeKey", "rawPath", "rawQueryString", "headers", "cookies", "requestContext",
+                  "body", "isBase64Encoded", "queryStringParameters", "pathParameters", "stageVariables"}
 
 
 def ingest_into_bronze(cfg: Config, lake: DataLake, audit: RunAudit, full_refresh: bool) -> None:
@@ -77,7 +84,7 @@ def run_pipeline(stages: list[str], full_refresh: bool = False) -> dict[str, Any
 
 
 def _request_params(event: dict | None) -> dict[str, Any]:
-    """Merge query string, JSON body and direct-invocation keys into one dict."""
+    """Merge query string, JSON body and direct-invocation fields into one dict."""
     event = event or {}
     params: dict[str, Any] = dict(event.get("queryStringParameters") or {})
     body = event.get("body")
@@ -88,9 +95,10 @@ def _request_params(event: dict | None) -> dict[str, Any]:
                 params.update(parsed)
         except (TypeError, ValueError):
             pass
-    for key in ("stage", "full_refresh", "bucket", "action"):
-        if key in event:
-            params.setdefault(key, event[key])
+    # Direct invocations pass parameters as top-level fields (Function URL events use the query string)
+    for key, value in event.items():
+        if key not in URL_EVENT_KEYS and isinstance(value, (str, int, float, bool)):
+            params.setdefault(key, value)
     return params
 
 
@@ -122,17 +130,38 @@ def handler(event: dict | None, context: Any) -> dict:
     try:
         params = _request_params(event)
         action = str(params.get("action", "run")).lower()
+        via_public_url = "requestContext" in (event or {})
+
+        if action in ("load_sources", "sql") and via_public_url:
+            return response(403, {"error": f"{action} must be run with an IAM-signed 'aws lambda invoke'"})
 
         if action == "load_sources":
-            if "requestContext" in (event or {}):  # came through the public Function URL
-                return response(403, {"error": "load_sources must be run with an IAM-signed 'aws lambda invoke'"})
             if params.get("bucket"):
                 os.environ["DATA_LAKE_BUCKET"] = str(params["bucket"])
             cfg = Config.from_env()
             return response(200, load_sources(cfg, DataLake(cfg)))
 
+        if action == "sql":  # operator-only, read-only SQL on the source database
+            try:
+                return response(200, run_readonly_sql(Config.from_env(), params.get("query")))
+            except ValueError as exc:
+                return response(400, {"error": str(exc)})
+
+        if action in ("dashboard", "search", "table"):  # read-only views for the public dashboard
+            cfg = Config.from_env()
+            lake = DataLake(cfg)
+            readers = {"dashboard": lambda: dashboard_summary(cfg, lake),
+                       "search": lambda: search_employees(cfg, lake, params),
+                       "table": lambda: preview_table(cfg, lake, params)}
+            try:
+                payload = readers[action]()
+            except ValueError as exc:
+                return response(400, {"error": str(exc)})
+            return response(200, payload)
+
         if action != "run":
-            return response(400, {"error": f"Unknown action '{action}'; use 'run' or 'load_sources'"})
+            return response(400, {"error": f"Unknown action '{action}'; use 'run', 'dashboard', 'search', "
+                                           "'table', 'sql' or 'load_sources'"})
         try:
             stages, full_refresh = parse_request(event)
         except ValueError as exc:

@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACME Talent Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6; --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+    --accent-ink: #1c5cab; --error-bg: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5; --accent-ink: #86b6ef; --error-bg: #3a1f1f;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --accent-ink: #86b6ef; --error-bg: #3a1f1f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 26px; margin: 0; }
+  h2 { font-size: 18px; margin: 32px 0 12px; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+  .meta { color: var(--ink-2); font-size: 13px; }
+  .meta a { color: var(--accent-ink); }
+  button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+           background: var(--surface); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--series-1); color: #fff; border-color: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 20px; }
+  .tile .value { font-size: 30px; font-weight: 650; line-height: 1.1; }
+  .tile .label { color: var(--ink-2); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .chart-box { position: relative; height: 260px; }
+  .note { color: var(--ink-2); font-size: 13px; margin: 8px 0 0; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  form.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+  select, input { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border);
+                  background: var(--page); color: var(--ink); min-width: 0; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--surface); color: var(--ink-2); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pager { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+  .status { display: inline-flex; gap: 6px; align-items: center; }
+  .status i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .error { background: var(--error-bg); border-radius: 10px; padding: 12px 14px; margin-top: 16px; display: none; }
+  .loading { color: var(--muted); font-size: 13px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>ACME Talent Dashboard</h1>
+      <div class="meta" id="meta">Loading live data from the Gold layer…</div>
+    </div>
+    <div class="meta">
+      <button id="refresh" type="button">↻ Refresh</button>
+      &nbsp;<a href="./">Full analysis report</a>
+    </div>
+  </header>
+
+  <div class="error" id="error"></div>
+
+  <section class="tiles" id="tiles" aria-label="Key figures"></section>
+
+  <h2>Performance and talent</h2>
+  <div class="grid">
+    <div class="card"><h3>Performance trend (2024-H2 → 2025-H1)</h3><div class="chart-box"><canvas id="c-trend" role="img" aria-label="Employees by performance trend"></canvas></div></div>
+    <div class="card"><h3>Attrition risk (data-driven score)</h3><div class="chart-box"><canvas id="c-risk" role="img" aria-label="Employees by attrition risk"></canvas></div>
+      <div class="legend"><span><i style="background:var(--good)"></i>Low</span><span><i style="background:var(--warning)"></i>Medium</span><span><i style="background:var(--critical)"></i>High</span></div></div>
+    <div class="card"><h3>Promotion readiness</h3><div class="chart-box"><canvas id="c-promo" role="img" aria-label="Employees by promotion status"></canvas></div>
+      <p class="note" id="agree"></p></div>
+    <div class="card"><h3>Top competencies with critical gaps</h3><div class="chart-box"><canvas id="c-gaps" role="img" aria-label="Employees with a critical gap, by competency"></canvas></div></div>
+  </div>
+
+  <h2>Departments and teams</h2>
+  <div class="grid">
+    <div class="card"><h3>Average latest rating by department</h3><div class="chart-box"><canvas id="c-dept-rating" role="img" aria-label="Average rating by department"></canvas></div></div>
+    <div class="card"><h3>% of employees with a critical skill gap</h3><div class="chart-box"><canvas id="c-dept-gap" role="img" aria-label="Share with a critical gap by department"></canvas></div></div>
+    <div class="card"><h3>Team rating vs project outcome</h3><div class="chart-box"><canvas id="c-teams" role="img" aria-label="Team average rating against project outcome score"></canvas></div>
+      <p class="note" id="corr"></p></div>
+  </div>
+
+  <h2>Find employees</h2>
+  <div class="card">
+    <form class="filters" id="search-form">
+      <label>Department<select name="department"></select></label>
+      <label>Job level<select name="job_level"></select></label>
+      <label>Trend<select name="performance_trend"></select></label>
+      <label>Attrition risk<select name="attrition_risk"></select></label>
+      <label>Promotion status<select name="promotion_status"></select></label>
+      <label>Min rating<select name="min_rating"><option value="">Any</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+      <label>Critical gap<select name="has_critical_gap"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>
+      <label>Name contains<input name="name" placeholder="e.g. smith" autocomplete="off"></label>
+      <label>Sort by<select name="sort"><option value="name">Name</option><option value="rating">Rating (high first)</option><option value="risk">Attrition risk (high first)</option></select></label>
+      <div style="display:flex; gap:8px"><button class="primary" type="submit">Search</button><button type="reset">Clear</button></div>
+    </form>
+    <div class="table-wrap"><table id="results"></table></div>
+    <div class="pager"><button type="button" id="prev">← Previous</button><span id="page-info"></span><button type="button" id="next">Next →</button></div>
+  </div>
+
+  <h2>Explore the tables</h2>
+  <div class="card">
+    <form class="filters" id="table-form">
+      <label>Source<select name="source">
+        <option value="aurora">Aurora PostgreSQL (source, live)</option>
+        <option value="bronze">Bronze (raw copy)</option>
+        <option value="silver">Silver (validated)</option>
+        <option value="gold" selected>Gold (business tables)</option>
+      </select></label>
+      <label>Table<select name="table"></select></label>
+      <label>Rows<select name="limit"><option>20</option><option>50</option><option>100</option></select></label>
+      <div><button class="primary" type="submit">Show table</button></div>
+    </form>
+    <p class="note" id="table-info"></p>
+    <div class="table-wrap"><table id="table-view"></table></div>
+  </div>
+
+  <footer>
+    Data flows Aurora PostgreSQL + S3 landing → Bronze → Silver → Gold (S3), built by the <code>acme-perf-etl</code> Lambda.
+    This page only reads: whitelisted queries, no writes, email addresses are never shown.
+  </footer>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const params = new URLSearchParams(location.search);
+  const API = params.get("api") || "/api/acme-perf-etl";
+  const PAGE = 25;
+  const TABLES = {
+    aurora: ["teams", "competencies", "employees", "projects", "performance_reviews", "competency_assessments", "talent_review"],
+    bronze: ["teams", "competencies", "employees", "projects", "performance_reviews", "competency_assessments", "talent_review", "learning_activity"],
+    silver: ["teams", "competencies", "employees", "projects", "performance_reviews", "competency_assessments", "talent_review", "learning_activity"],
+    gold: ["gold_employee_profile", "gold_review_history", "gold_employee_performance", "gold_skill_gaps", "gold_skill_distribution",
+           "gold_training_summary", "gold_attrition_risk", "gold_promotion_candidates", "gold_team_performance"],
+  };
+  const charts = {};
+  let offset = 0, lastTotal = 0;
+
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const fmt = (n) => (n === null || n === undefined ? "–" : Number(n).toLocaleString());
+
+  async function api(query) {
+    const url = API + (API.includes("?") ? "&" : "?") + new URLSearchParams(query).toString();
+    const res = await fetch(url, { cache: "no-store" });
+    let body;
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}${res.status === 504 ? " (the data service is waking up – try again)" : ""}`);
+    return body;
+  }
+
+  function showError(message) {
+    const box = $("error");
+    box.textContent = message ? "Could not load data: " + message : "";
+    box.style.display = message ? "block" : "none";
+  }
+
+  function axisStyle() {
+    return {
+      grid: { color: css("--grid") }, border: { color: css("--axis") },
+      ticks: { color: css("--ink-2"), font: { size: 12 } },
+    };
+  }
+
+  function barChart(id, labels, values, { horizontal = false, colors = null, suffix = "", max } = {}) {
+    if (charts[id]) charts[id].destroy();
+    const valueAxis = { ...axisStyle(), beginAtZero: true, max };
+    const catAxis = { ...axisStyle(), grid: { display: false } };
+    charts[id] = new Chart($(id), {
+      type: "bar",
+      data: { labels, datasets: [{ data: values, backgroundColor: colors || css("--series-1"),
+              borderRadius: 4, borderSkipped: "start", maxBarThickness: 34 }] },
+      options: {
+        indexAxis: horizontal ? "y" : "x", maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: (c) => " " + fmt(c.parsed[horizontal ? "x" : "y"]) + suffix } } },
+        scales: horizontal ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis },
+      },
+    });
+  }
+
+  function scatterChart(id, points) {
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart($(id), {
+      type: "scatter",
+      data: { datasets: [{ data: points, backgroundColor: css("--series-1"), borderColor: css("--surface"),
+              borderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }] },
+      options: {
+        maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: (c) => ` ${c.raw.team}: rating ${c.raw.x.toFixed(2)}, outcome ${c.raw.y.toFixed(1)}` } } },
+        scales: {
+          x: { ...axisStyle(), title: { display: true, text: "Average latest rating", color: css("--ink-2") } },
+          y: { ...axisStyle(), title: { display: true, text: "Average project outcome", color: css("--ink-2") } },
+        },
+      },
+    });
+  }
+
+  function fillSelect(select, values, anyLabel = "Any") {
+    select.innerHTML = `<option value="">${anyLabel}</option>` +
+      values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function renderTable(table, columns, rows, labels = {}) {
+    if (!rows.length) { table.innerHTML = `<tr><td class="loading">No rows match.</td></tr>`; return; }
+    const head = "<tr>" + columns.map((c) => `<th>${escapeHtml(labels[c] || c)}</th>`).join("") + "</tr>";
+    const body = rows.map((r) => "<tr>" + columns.map((c) => {
+      const v = r[c];
+      const numeric = typeof v === "number";
+      return `<td class="${numeric ? "num" : ""}">${v === null || v === undefined ? "–" : escapeHtml(numeric ? fmt(v) : v)}</td>`;
+    }).join("") + "</tr>").join("");
+    table.innerHTML = head + body;
+  }
+
+  // ---------------------------------------------------------------- dashboard
+  async function loadDashboard() {
+    $("refresh").disabled = true;
+    showError("");
+    try {
+      const d = await api({ action: "dashboard" });
+      const k = d.kpis, ch = d.charts, src = d.generated_from || {};
+      const built = src.gold_built_at ? new Date(src.gold_built_at).toLocaleString() : "unknown";
+      $("meta").innerHTML = `Live from the Gold layer · built ${escapeHtml(built)} · pipeline run <code>${escapeHtml(src.run_id || "–")}</code>`;
+
+      const tiles = [
+        ["employees", "Employees"], ["improving", "Improving performance"], ["declining", "Declining performance"],
+        ["critical_gap_employees", "With a critical skill gap"], ["ready_now_high_potential", "Ready now, high potential"],
+        ["high_attrition_risk", "High attrition risk"], ["no_recent_learning", "No learning in last 180 days"],
+      ];
+      $("tiles").innerHTML = tiles.map(([key, label]) =>
+        `<div class="card tile"><div class="value">${fmt(k[key])}</div><div class="label">${label}</div></div>`).join("");
+
+      barChart("c-trend", Object.keys(ch.performance_trend), Object.values(ch.performance_trend));
+      barChart("c-risk", Object.keys(ch.attrition_risk), Object.values(ch.attrition_risk),
+               { colors: [css("--good"), css("--warning"), css("--critical")] });
+      barChart("c-promo", Object.keys(ch.promotion_status), Object.values(ch.promotion_status), { horizontal: true });
+      $("agree").textContent = `The talent team's "Ready Now" label agrees with the data for ${ch.label_agreement_pct.promotion}% of employees; attrition labels agree for ${ch.label_agreement_pct.attrition}%.`;
+      barChart("c-gaps", Object.keys(ch.top_critical_competencies), Object.values(ch.top_critical_competencies), { horizontal: true });
+
+      const depts = [...ch.departments].sort((a, b) => b.avg_rating - a.avg_rating);
+      barChart("c-dept-rating", depts.map((x) => x.department), depts.map((x) => x.avg_rating), { horizontal: true, max: 5 });
+      const gapsByDept = [...ch.departments].sort((a, b) => b.pct_critical_gap - a.pct_critical_gap);
+      barChart("c-dept-gap", gapsByDept.map((x) => x.department), gapsByDept.map((x) => x.pct_critical_gap), { horizontal: true, suffix: "%" });
+
+      scatterChart("c-teams", ch.teams_with_projects.map((t) => ({ x: t.avg_latest_rating, y: t.avg_outcome_score, team: t.team_name })));
+      $("corr").textContent = ch.rating_outcome_correlation === null
+        ? "Too few teams with projects to compute a correlation."
+        : `Correlation r = ${ch.rating_outcome_correlation} across ${ch.teams_with_projects.length} teams with projects: a weak relationship, not conclusive.`;
+
+      const form = $("search-form");
+      fillSelect(form.department, d.filters.department);
+      fillSelect(form.job_level, d.filters.job_level);
+      fillSelect(form.performance_trend, d.filters.performance_trend);
+      fillSelect(form.attrition_risk, d.filters.attrition_risk);
+      fillSelect(form.promotion_status, d.filters.promotion_status);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      $("refresh").disabled = false;
+    }
+  }
+
+  // ------------------------------------------------------------------- search
+  const RESULT_COLUMNS = ["employee_name", "department", "job_level", "latest_rating", "performance_trend",
+                          "critical_gap_count", "derived_attrition_risk", "promotion_status", "courses_completed"];
+  const RESULT_LABELS = { employee_name: "Employee", department: "Department", job_level: "Level", latest_rating: "Rating",
+                          performance_trend: "Trend", critical_gap_count: "Critical gaps", derived_attrition_risk: "Attrition risk",
+                          promotion_status: "Promotion", courses_completed: "Courses done" };
+
+  async function search() {
+    const data = Object.fromEntries(new FormData($("search-form")).entries());
+    const query = { action: "search", limit: PAGE, offset };
+    for (const [key, value] of Object.entries(data)) if (value) query[key] = value;
+    $("results").innerHTML = `<tr><td class="loading">Searching…</td></tr>`;
+    try {
+      const r = await api(query);
+      lastTotal = r.total;
+      renderTable($("results"), RESULT_COLUMNS, r.rows, RESULT_LABELS);
+      const end = Math.min(offset + PAGE, r.total);
+      $("page-info").textContent = r.total ? `${offset + 1}–${end} of ${fmt(r.total)} employees` : "0 employees";
+      $("prev").disabled = offset === 0;
+      $("next").disabled = end >= r.total;
+    } catch (err) {
+      $("results").innerHTML = `<tr><td>${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  $("search-form").addEventListener("submit", (e) => { e.preventDefault(); offset = 0; search(); });
+  $("search-form").addEventListener("reset", () => setTimeout(() => { offset = 0; search(); }, 0));
+  $("prev").addEventListener("click", () => { offset = Math.max(0, offset - PAGE); search(); });
+  $("next").addEventListener("click", () => { if (offset + PAGE < lastTotal) { offset += PAGE; search(); } });
+
+  // ------------------------------------------------------------ table viewer
+  const tableForm = $("table-form");
+  function syncTables() {
+    tableForm.table.innerHTML = TABLES[tableForm.source.value].map((t) => `<option>${t}</option>`).join("");
+  }
+  tableForm.source.addEventListener("change", syncTables);
+  tableForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = { action: "table", source: tableForm.source.value, table: tableForm.table.value, limit: tableForm.limit.value };
+    $("table-info").textContent = "Loading…";
+    $("table-view").innerHTML = "";
+    try {
+      const r = await api(query);
+      $("table-info").textContent = `${r.source} · ${r.table}: showing ${r.rows.length} of ${fmt(r.total_rows)} rows` +
+        (r.source === "aurora" ? " (read live from the database)" : "");
+      renderTable($("table-view"), r.columns, r.rows);
+    } catch (err) {
+      $("table-info").textContent = err.message;
+    }
+  });
+  syncTables();
+
+  $("refresh").addEventListener("click", () => { loadDashboard(); search(); });
+  loadDashboard().then(search);
+})();
+</script>
+</body>
+</html>
