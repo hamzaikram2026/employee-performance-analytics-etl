@@ -290,7 +290,6 @@ Every Silver step reconciles `rows_read = rows_written + rows_quarantined`.
 | Q6 Performance vs outcomes | Weak positive correlation (r = 0.17) across the 27 teams that have projects; not conclusive |
 | Q7 Skill distribution | By department, category and proficiency level (assessments: Domain 1,949 · Technical 1,222 · Leadership 595) |
 
----
 
 ## 9. Testing
 
