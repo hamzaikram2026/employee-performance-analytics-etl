@@ -11,9 +11,35 @@ training and attrition.
   region ap-south-1) with the workshop's `deploy-backend.sh`; the cloud run produces results identical to local
   and is reachable from any browser
 * **Quality:** schema contracts, business rules, quarantine with reasons, row-count reconciliation at every step
-* **Tests:** 71 automated tests + 1 performance benchmark; ~97% coverage; scaling verified at 10× volume
+* **Tests:** 109 automated tests + 1 performance benchmark; ~97% coverage; scaling verified at 10× volume
 * **Insights:** [`data/notebooks/performance_insights.ipynb`](../../data/notebooks/performance_insights.ipynb)
-  ([HTML version](../../data/notebooks/performance_insights.html)), 15 Matplotlib charts answering all 7 questions
+  ([HTML version](../../data/notebooks/performance_insights.html)), 15 Matplotlib charts answering all 7 questions;
+  public report: **https://d2mx3l9n7j229p.cloudfront.net/**
+* **Live dashboard:** **https://d2mx3l9n7j229p.cloudfront.net/dashboard.html** – KPIs, charts, employee search and a table
+  explorer (Aurora, Bronze, Silver, Gold), served by read-only actions of the same Lambda
+
+---
+
+## Requirements traceability
+
+| Requirement | Where it is met |
+|---|---|
+| Medallion data lake (Bronze → Silver → Gold) | `lib/bronze.py`, `lib/silver.py`, `lib/gold.py`; layout in §5 |
+| Ingestion from source systems | PostgreSQL / Aurora (7 tables) + S3 landing (783 JSONL files) → Bronze |
+| ETL batch jobs for Silver and Gold | Lambda service `acme-perf-etl`, runnable per stage (§3, §4) |
+| Schema validation (custom Python validators) | `lib/validation.py` engine + `lib/contracts.py` contracts; quarantine with reasons (§7) |
+| Data lineage across layers | Lineage columns, `_audit/runs` records, Bronze manifests, source-to-target mapping (§6) |
+| Visualize the Gold layer | Jupyter notebook (15 Matplotlib charts), public report https://d2mx3l9n7j229p.cloudfront.net/ and live dashboard `/dashboard.html` |
+| Python / Pandas, S3, PostgreSQL | Pandas + fastparquet on S3; psycopg2 for PostgreSQL / Aurora |
+| Deployed to AWS with data flowing end to end | Lambda + Aurora + S3 in ap-south-1; run `8d92a2cb47be`: 25 steps SUCCESS (§4) |
+| Runs locally and in cloud mode without code changes | `IS_LOCAL` and env vars only; LocalStack and AWS both verified |
+| Idempotent / incremental | Overwrite per partition, incremental event partitions; tested (§9) |
+| Queryable outputs | Gold Parquet on S3; read-only `dashboard` / `search` / `table` API and operator SQL tool (§4) |
+| Testing, coverage, performance, evidence | 109 tests + benchmark, `data/evidence/` (§9) |
+
+**Not applicable / partially covered:** there are no external APIs, so API rate limits do not apply (database and S3 calls retry with
+exponential backoff). Failures are logged as structured `ERROR` events and recorded in the run audit, but no alerting channel is wired up
+(see §12). Development plans and goals are not in the dataset (§11).
 
 ---
 
@@ -31,6 +57,8 @@ graph LR
     end
     A["_audit<br/>run records + manifests"]
     NB["Jupyter notebook<br/>7 questions, 15 charts"]
+    API["Lambda read-only API<br/>dashboard / search / table"]
+    DB["Live dashboard<br/>CloudFront /dashboard.html"]
     URL["Lambda Function URL<br/>(public HTTPS)"]
 
     PG --> B
@@ -39,6 +67,9 @@ graph LR
     S -.invalid rows.-> Q
     S --> G
     G --> NB
+    G --> API
+    PG -.live preview.-> API
+    API --> DB
     URL -.triggers.-> B
     B -.-> A
     S -.-> A
@@ -50,13 +81,15 @@ graph LR
 | Ingestion (Bronze) | Copy sources unchanged, add lineage, partition by date, load events incrementally | `lib/bronze.py` |
 | Transformation (Silver) | Parse, cast types, apply schema contracts and business rules, quarantine failures | `lib/silver.py`, `lib/contracts.py`, `lib/validation.py` |
 | Serving (Gold) | Business tables with an enforced grain, one per question | `lib/gold.py` |
+| Read-only API | Dashboard figures, employee search, table preview; operator read-only SQL | `lib/dashboard_api.py`, `lib/admin_sql.py` |
 | Shared | Config from env vars, structured logging and step metrics, PostgreSQL/S3 I/O with retries | `lib/config.py`, `lib/logging_utils.py`, `lib/storage.py` |
 | Source setup | Load the HR tables into Aurora from inside the VPC (cloud only) | `lib/source_loader.py` |
-| Entry point | Lambda handler + CLI; runs stages and writes the run audit | `function.py` |
+| Entry point | Lambda handler + CLI; routes actions, runs stages and writes the run audit | `function.py` |
+| Presentation | Notebook report and live dashboard page | `data/notebooks/`, `data/dashboard/dashboard.html` |
 
 **Tech stack:** Python 3.13, Pandas, NumPy, fastparquet (Parquet), boto3 (S3), psycopg2 (PostgreSQL),
-PostgreSQL 18 locally / Aurora PostgreSQL 17.7 in AWS, LocalStack, AWS Lambda, Terraform (workshop-provided),
-pytest + pytest-cov, Jupyter + Matplotlib.
+PostgreSQL 18 locally / Aurora PostgreSQL 17.7 in AWS, LocalStack, AWS Lambda, CloudFront + S3 website,
+Terraform (workshop-provided), pytest + pytest-cov, Jupyter + Matplotlib, Chart.js (dashboard).
 
 ---
 
@@ -74,11 +107,15 @@ backend/acme-perf-etl/          # this service (deployed as a Lambda by bin/depl
 │   ├── validation.py           # reusable schema-contract engine
 │   ├── contracts.py            # schema contracts for every dataset
 │   ├── bronze.py  silver.py  gold.py
+│   ├── dashboard_api.py        # read-only dashboard, search and table-preview API
+│   ├── admin_sql.py            # operator-only read-only SQL on Aurora
 │   └── source_loader.py        # loads the HR source tables into Aurora (cloud setup)
-└── tests/                      # unit, end-to-end, resilience, integration, cloud-mode, performance
+└── tests/                      # unit, end-to-end, resilience, integration, cloud-mode, API, performance
 data/
 ├── source/                     # sample dataset, schema.sql, load.sh, learning_activity/
 ├── notebooks/                  # insights notebook, HTML export, charts/, build_notebook.py
+├── dashboard/dashboard.html    # live public dashboard (served by CloudFront)
+├── scripts/aurora_sql.py       # run a read-only SQL query on Aurora through the Lambda
 ├── evidence/                   # captured test, performance, pipeline-run and AWS deployment output
 └── requirements-dev.txt        # runtime + test + notebook dependencies
 ```
@@ -114,7 +151,7 @@ python function.py silver                    # or a single stage
 FULL_REFRESH=true python function.py bronze  # re-ingest every event partition
 
 # 5. Tests
-python -m pytest --cov=lib --cov-report=term-missing   # 71 tests (performance excluded)
+python -m pytest --cov=lib --cov-report=term-missing   # 109 tests (performance excluded)
 python -m pytest -m performance -s                     # scale / throughput / SLA benchmark
 
 # 6. Insights notebook (regenerate and execute)
@@ -140,7 +177,7 @@ the Aurora endpoint and credentials, and `APP_ID` / `APP_NAME`, from which the c
 bucket `coding-workshop-datalake-<app_id>` (the only bucket name pattern the Lambda role may use).
 
 **In AWS:** Aurora PostgreSQL (7 HR tables) and S3 landing (783 event files) → Lambda → Bronze / Silver / Gold
-Parquet on S3 → public Lambda Function URL.
+Parquet on S3 → read-only API → public dashboard on CloudFront.
 
 Run from the repo root, in a terminal **without** the LocalStack variables:
 
@@ -172,36 +209,64 @@ aws lambda invoke --function-name $FN --cli-binary-format raw-in-base64-out \
 aws lambda invoke --function-name $FN --cli-binary-format raw-in-base64-out \
   --payload '{"stage":"all","full_refresh":true}' --cli-read-timeout 310 run.json
 curl "https://<function-url>.lambda-url.ap-south-1.on.aws/?stage=gold"   # from any device
+
+# 6. Publish the dashboard page
+aws s3 cp data/dashboard/dashboard.html s3://coding-workshop-website-$PARTICIPANT_ID/dashboard.html --content-type "text/html"
+aws cloudfront create-invalidation --distribution-id <distribution-id> --paths "/*"
 ```
 
 Requests accept `stage=all|bronze|silver|gold` (or a list such as `silver,gold`), `full_refresh=true`, and
 `bucket=<name>`, as a query string, JSON body, or direct invocation payload.
 
-**Verified results (real AWS):**
+### Read-only API and live dashboard
+
+The same Lambda serves read-only views for the dashboard at `https://d2mx3l9n7j229p.cloudfront.net/dashboard.html`
+(through CloudFront's `/api/acme-perf-etl` path):
+
+| Action | Example | Returns |
+|---|---|---|
+| `dashboard` | `?action=dashboard` | KPIs, chart series and filter options from the current Gold tables |
+| `search` | `?action=search&department=Sales&min_rating=4&sort=risk` | Employees matching whitelisted filters, paginated (max 200) |
+| `table` | `?action=table&source=aurora&table=employees&limit=20` | Preview of a whitelisted table from Aurora (live), Bronze, Silver or Gold (max 100 rows) |
+| `sql` | `ETL_FUNCTION=$FN python data/scripts/aurora_sql.py "SELECT count(*) FROM employees"` | One read-only query on Aurora (IAM-signed invoke only) |
+
+Safeguards: only whitelisted filters and tables; email addresses are never returned; nothing is written. `sql` and
+`load_sources` are refused over the public URL, `sql` runs in a read-only database session with a 20 s timeout and a
+single `SELECT`/`WITH`/`SHOW`/`EXPLAIN` statement. Aurora stays private: only the Lambda inside the VPC can reach it.
+
+### Verified results (real AWS)
 
 | Check | Result |
 |---|---|
 | Source load into Aurora | 100 / 40 / 2,000 / 33 / 4,000 / 4,000 / 2,000 rows in 0.9 s |
 | Full refresh run | HTTP 200, all **25 steps SUCCESS**; row counts identical to local (events 29,868 → 24,413 kept / 5,455 quarantined) |
 | Cold run duration / peak memory | ~80 s (limit 300 s) / **210 MB** (512 MB configured) |
-| Public access | Function URL called from a laptop browser outside the WorkSpace returned SUCCESS |
+| Public access | Function URL, report and dashboard opened from a laptop browser outside the WorkSpace |
+| Dashboard API | `?action=dashboard` via CloudFront: 2,000 employees, 796 improving, 208 declining, 299 critical gaps, 212 ready now (high potential), 173 high attrition risk |
 
-Evidence: [`aws_lambda_full_refresh.json`](../../data/evidence/aws_lambda_full_refresh.json) ·
+**End-to-end proof (run `8d92a2cb47be`):** status SUCCESS, 25 steps. Bronze written 02:03:40 → Silver 02:04:26 →
+Gold 02:04:30 → audit record `_audit/runs/2026-10-15/8d92a2cb47be.json` (partition dates are UTC) → the dashboard
+header shows the same run id after Refresh. A read-only query on Aurora returns 2,000 employees and 4,000 reviews,
+matching the dashboard and the pipeline's read counts.
+
+Evidence: [`aws_end_to_end_run.json`](../../data/evidence/aws_end_to_end_run.json) ·
+[`aws_end_to_end_layers.txt`](../../data/evidence/aws_end_to_end_layers.txt) ·
+[`aws_lambda_full_refresh.json`](../../data/evidence/aws_lambda_full_refresh.json) ·
 [`aws_lambda_function.txt`](../../data/evidence/aws_lambda_function.txt) ·
 [`aws_lambda_reports.txt`](../../data/evidence/aws_lambda_reports.txt) ·
 [`aws_aurora_cluster.txt`](../../data/evidence/aws_aurora_cluster.txt)
 
-**Problems found during deployment, and how they were solved**
+### Problems found during deployment, and how they were solved
 
 | Problem | Evidence | Fix |
 |---|---|---|
 | Lambda package too large | 354 MB unzipped / 115 MB zipped; pyarrow alone 167 MB (limits 250 MB / 50 MB) | Switched the Parquet engine to **fastparquet** and rely on the runtime's boto3: 124 MB / 36 MB. Full test suite unchanged. |
 | 128 MB memory too small | Logs: 122 MB used before any work; real peak 210 MB | Memory set to 512 MB with the AWS CLI after each deploy (no `infra/` change) |
-| Aurora not reachable from the WorkSpace | Cluster is `PubliclyAccessible=False`; TCP 5432 timed out | `load_sources` action runs the same steps as `load.sh` from inside the VPC, in one transaction |
+| Aurora not reachable from the WorkSpace | Cluster is `PubliclyAccessible=False`; TCP 5432 timed out | `load_sources` action runs the same steps as `load.sh` from inside the VPC, in one transaction; `table` / `sql` actions for reading |
 | Bucket name not allowed | Lambda role only allows `coding-workshop*<app_id>*` | Bucket derived from `APP_NAME` / `APP_ID` automatically |
 | Plain "Internal Server Error" | Missing bucket crashed the audit write | Handler always returns JSON; audit-write failures are logged, not raised |
 | Two overlapping runs left Bronze 38 rows short | Reconciliation showed 29,830 instead of 29,868 | Re-ran with `full_refresh`; counts matched again. Lesson: never start a run while another is active |
-| CloudFront 30 s origin timeout | Full run takes ~80 s | Use the direct Function URL for full runs; CloudFront suits short calls such as `?stage=gold` |
+| CloudFront 30 s origin timeout | Full run takes ~80 s | Full runs use `aws lambda invoke` or the direct Function URL; CloudFront serves the short read-only calls |
 | LocalStack: `No module named 'pandas'` | Hot-reload mounts source without dependencies | Vendored `.deps/` folder, used only inside a LocalStack Lambda |
 
 ---
@@ -227,6 +292,7 @@ Full listing: [`data/evidence/lake_layout.txt`](../../data/evidence/lake_layout.
 **Lineage columns** travel with every row: `_source_system`, `_source_object`, `_ingested_at`, `_run_id` (Bronze),
 `_source_file`, `_line_number`, `_text_field` (events), `_silver_processed_at` (Silver), `_gold_built_at`, `_run_id` (Gold).
 Every step logs rows read, written and quarantined, duration and status, and each run's audit record is stored in `_audit/runs/`.
+The dashboard header shows the Gold build time and run id, so any figure on the page can be traced back to its run.
 
 **Bronze → Silver**
 
@@ -280,22 +346,26 @@ Every Silver step reconciles `rows_read = rows_written + rows_quarantined`.
 
 ## 8. Results (Gold layer)
 
-| Question | Answer (from the notebook) |
+| Question | Answer (from the notebook and dashboard) |
 |---|---|
 | Q1 Ratings and review history | 796 improving, 767 stable, 208 declining, 124 single review, 105 with no valid review |
 | Q2 Critical skill gaps | 299 employees (15%) are 2+ levels below a required level |
 | Q3 Promotion | 212 ready now and high potential; talent "Ready Now" label agrees with the data for 54% of employees |
-| Q4 Training | Full per-employee record of enrolments, completions, certifications and quizzes; 31 employees with no learning activity |
+| Q4 Training | Full per-employee record of enrolments, completions, certifications and quizzes; 31 employees with no learning activity; 201 with none in the last 180 days |
 | Q5 Attrition risk | 173 High, 309 Medium, 1,518 Low (explainable points score); 54% exact agreement with the talent label |
 | Q6 Performance vs outcomes | Weak positive correlation (r = 0.17) across the 27 teams that have projects; not conclusive |
 | Q7 Skill distribution | By department, category and proficiency level (assessments: Domain 1,949 · Technical 1,222 · Leadership 595) |
 
+Every employee-level answer can be explored on the dashboard with **Find employees** (filters by department, level,
+trend, risk, promotion status, rating and critical gap).
+
+---
 
 ## 9. Testing
 
 ```bash
 cd backend/acme-perf-etl
-python -m pytest --cov=lib --cov-report=term-missing   # 71 passed, 1 deselected
+python -m pytest --cov=lib --cov-report=term-missing   # 109 tests, 1 deselected
 python -m pytest -m performance -s                     # 1 passed
 ```
 
@@ -306,6 +376,8 @@ python -m pytest -m performance -s                     # 1 passed
 | `test_pipeline_e2e.py` (12) | Real Bronze → Silver → Gold on a small known dataset: ingestion counts, partition layout, manifest file sizes, quarantine reasons, reconciliation, Gold vs Silver counts, idempotent rerun, full refresh |
 | `test_resilience.py` (11) | Retry with exponential backoff for PostgreSQL and S3, no retry for bugs, local/cloud switching, failed-step recording, zero-rows warning, request parsing |
 | `test_cloud_mode.py` (9) | Bucket derivation in AWS, Aurora source loading (transactional, fails before touching the database if a file is missing), `load_sources` refused over the public URL, handler always returns JSON |
+| `test_dashboard_api.py` (22) | Dashboard KPIs and chart data against hand-computed values, search filters / sorting / pagination, input validation, table whitelists, email never returned, Bronze latest snapshot only |
+| `test_admin_sql.py` (16) | Only single read-only statements accepted, writes rejected, read-only session + rollback, row cap, refused over the public URL |
 | `test_integration.py` (4) | Real reads from PostgreSQL and writes/overwrites/cleanup on LocalStack S3; lake reconciliation (skipped automatically if services are unavailable) |
 | `test_performance.py` (1) | Throughput, 1× / 5× / 10× scale, memory, SLA |
 
@@ -346,6 +418,8 @@ dominated by reading and writing 783 small event files.
 | **Flag, don't remove, contradictory talent labels** | They are valid data with questionable meaning | Consumers must check `is_label_inconsistent` |
 | **Explainable rule-based scores** | Transparent to managers and testable | Less nuanced than a model; thresholds are assumptions |
 | **Load Aurora through the Lambda** | Aurora is private to the VPC; the WorkSpace cannot reach it | `load_sources` is destructive, so it is restricted to IAM-signed invocation |
+| **HTML + Chart.js dashboard instead of a BI tool** | Public, live, no licences or extra infrastructure; served by the existing CloudFront site and Lambda | Fewer self-service features than Power BI / QuickSight; new views need code |
+| **Read-only, whitelisted API** | The dashboard is public, so it must never write or run arbitrary queries | Free-form SQL is limited to operators with IAM access |
 | **UTC run dates** | Partitions don't depend on where the job runs | Dates differ from IST around midnight |
 
 ---
@@ -364,11 +438,14 @@ dominated by reading and writing 783 small event files.
 * Silver and Gold overwrite their outputs, so two runs must not overlap (observed once; detected by reconciliation and
   repaired with `full_refresh`). Reserved concurrency of 1 on the function would enforce this.
 * `load_sources` drops and reloads the source tables; it exists only to seed the workshop's empty Aurora and is not part of the ETL.
+* The dashboard has no login: it shows only aggregated figures and non-contact employee fields. A production deployment
+  would add authentication (e.g. Cognito) before exposing employee-level data.
+* Aurora Serverless pauses when idle, so the first dashboard or table call after a pause can take 15–30 s.
 * Many small event files are the main I/O cost; compacting daily files into monthly ones is the first optimisation at scale.
 
 ## 12. Next steps
 
 1. Schedule the Lambda (e.g. EventBridge daily) and alert on failed runs and quarantine spikes.
 2. Set Lambda memory and reserved concurrency in Terraform; compact small event files.
-3. Add Iceberg/Delta tables for ACID and time travel if volumes grow; publish Gold to Athena or PostgreSQL for BI.
+3. Add authentication to the dashboard; add Iceberg/Delta tables for ACID and time travel if volumes grow; publish Gold to Athena for ad-hoc SQL.
 4. Add development plans, goals and employee-level project assignments as new sources.
