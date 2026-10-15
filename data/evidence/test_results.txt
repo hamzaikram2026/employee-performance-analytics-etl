@@ -1,83 +1,19 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0 -- /home/u74cbf3a2/coding-workshop-participant/.venv/bin/python
-cachedir: .pytest_cache
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/u74cbf3a2/coding-workshop-participant/backend/acme-perf-etl
 configfile: pytest.ini
 testpaths: tests
 plugins: platformdirs-4.13.0, cov-7.1.0, anyio-4.15.1
-collecting ... collected 72 items / 1 deselected / 71 selected
+collected 110 items / 1 deselected / 109 selected
 
-tests/test_cloud_mode.py::test_explicit_bucket_wins PASSED               [  1%]
-tests/test_cloud_mode.py::test_cloud_bucket_is_derived_from_workshop_variables PASSED [  2%]
-tests/test_cloud_mode.py::test_localstack_uses_local_bucket PASSED       [  4%]
-tests/test_cloud_mode.py::test_cloud_without_bucket_or_app_variables_fails_fast PASSED [  5%]
-tests/test_cloud_mode.py::test_load_sources_applies_schema_and_copies_every_table PASSED [  7%]
-tests/test_cloud_mode.py::test_load_sources_missing_file_fails_before_touching_database PASSED [  8%]
-tests/test_cloud_mode.py::test_load_sources_is_refused_over_public_url PASSED [  9%]
-tests/test_cloud_mode.py::test_unknown_action_is_rejected PASSED         [ 11%]
-tests/test_cloud_mode.py::test_handler_returns_json_on_unexpected_error PASSED [ 12%]
-tests/test_integration.py::test_postgres_reads_source_tables PASSED      [ 14%]
-tests/test_integration.py::test_s3_write_overwrite_read_and_cleanup PASSED [ 15%]
-tests/test_integration.py::test_landing_zone_has_every_source_file PASSED [ 16%]
-tests/test_integration.py::test_lake_reconciles_source_silver_quarantine_gold PASSED [ 18%]
-tests/test_pipeline_e2e.py::test_every_step_succeeds PASSED              [ 19%]
-tests/test_pipeline_e2e.py::test_bronze_ingests_every_source_row PASSED  [ 21%]
-tests/test_pipeline_e2e.py::test_bronze_partition_layout PASSED          [ 22%]
-tests/test_pipeline_e2e.py::test_bronze_manifest_matches_source_file_sizes PASSED [ 23%]
-tests/test_pipeline_e2e.py::test_silver_quarantines_bad_rows_with_reasons PASSED [ 25%]
-tests/test_pipeline_e2e.py::test_silver_reconciles_read_written_quarantined PASSED [ 26%]
-tests/test_pipeline_e2e.py::test_silver_keys_unique_and_not_null PASSED  [ 28%]
-tests/test_pipeline_e2e.py::test_silver_types_and_schema_drift PASSED    [ 29%]
-tests/test_pipeline_e2e.py::test_gold_row_counts_reconcile_with_silver PASSED [ 30%]
-tests/test_pipeline_e2e.py::test_gold_metrics_match_known_values PASSED  [ 32%]
-tests/test_pipeline_e2e.py::test_rerun_is_idempotent_and_incremental PASSED [ 33%]
-tests/test_pipeline_e2e.py::test_full_refresh_reprocesses_without_duplicates PASSED [ 35%]
-tests/test_resilience.py::test_retry_recovers_from_transient_failures PASSED [ 36%]
-tests/test_resilience.py::test_retry_gives_up_after_max_attempts PASSED  [ 38%]
-tests/test_resilience.py::test_retry_does_not_retry_programming_errors PASSED [ 39%]
-tests/test_resilience.py::test_postgres_connection_timeout_is_retried PASSED [ 40%]
-tests/test_resilience.py::test_s3_transient_error_is_retried PASSED      [ 42%]
-tests/test_resilience.py::test_config_switches_between_local_and_cloud PASSED [ 43%]
-tests/test_resilience.py::test_failed_step_is_recorded_and_reraised PASSED [ 45%]
-tests/test_resilience.py::test_zero_rows_written_logs_warning PASSED     [ 46%]
-tests/test_resilience.py::test_parse_request_reads_query_string_and_body PASSED [ 47%]
-tests/test_resilience.py::test_parse_request_defaults_to_all_stages PASSED [ 49%]
-tests/test_resilience.py::test_handler_rejects_unknown_stage PASSED      [ 50%]
-tests/test_transformations.py::test_partition_of_extracts_hive_partition PASSED [ 52%]
-tests/test_transformations.py::test_add_lineage_adds_metadata_without_mutating_input PASSED [ 53%]
-tests/test_transformations.py::test_parse_events_separates_malformed_and_tracks_drift PASSED [ 54%]
-tests/test_transformations.py::test_employee_rules PASSED                [ 56%]
-tests/test_transformations.py::test_review_rules PASSED                  [ 57%]
-tests/test_transformations.py::test_assessment_rules PASSED              [ 59%]
-tests/test_transformations.py::test_talent_review_flags_but_keeps_contradictions PASSED [ 60%]
-tests/test_transformations.py::test_event_rules PASSED                   [ 61%]
-tests/test_transformations.py::test_comment_sentiment PASSED             [ 63%]
-tests/test_transformations.py::test_performance_trends_and_rating_change PASSED [ 64%]
-tests/test_transformations.py::test_skill_gaps_and_distribution PASSED   [ 66%]
-tests/test_transformations.py::test_training_summary_counts_and_rates PASSED [ 67%]
-tests/test_transformations.py::test_profile_attrition_score_and_promotion PASSED [ 69%]
-tests/test_transformations.py::test_team_performance_joins_projects PASSED [ 70%]
-tests/test_transformations.py::test_publish_writes_table_with_lineage PASSED [ 71%]
-tests/test_transformations.py::test_publish_rejects_grain_violation PASSED [ 73%]
-tests/test_validation.py::TestCastSeries::test_int_accepts_whole_numbers_and_trims_spaces PASSED [ 74%]
-tests/test_validation.py::TestCastSeries::test_int_rejects_fractions_text_and_blanks PASSED [ 76%]
-tests/test_validation.py::TestCastSeries::test_date_requires_iso_format PASSED [ 77%]
-tests/test_validation.py::TestCastSeries::test_datetime_parses_iso_and_rejects_free_text PASSED [ 78%]
-tests/test_validation.py::TestCastSeries::test_unknown_dtype_raises PASSED [ 80%]
-tests/test_validation.py::TestValidate::test_valid_row_passes_and_is_typed PASSED [ 81%]
-tests/test_validation.py::TestValidate::test_required_value_missing_is_rejected PASSED [ 83%]
-tests/test_validation.py::TestValidate::test_nullable_column_allows_missing PASSED [ 84%]
-tests/test_validation.py::TestValidate::test_out_of_range_is_rejected PASSED [ 85%]
-tests/test_validation.py::TestValidate::test_value_not_in_allowed_set_is_rejected PASSED [ 87%]
-tests/test_validation.py::TestValidate::test_invalid_type_is_rejected PASSED [ 88%]
-tests/test_validation.py::TestValidate::test_all_problems_in_a_row_are_reported PASSED [ 90%]
-tests/test_validation.py::TestValidate::test_duplicate_primary_key_keeps_first_occurrence PASSED [ 91%]
-tests/test_validation.py::TestValidate::test_missing_required_column_raises PASSED [ 92%]
-tests/test_validation.py::TestValidate::test_schema_drift_alias_is_mapped PASSED [ 94%]
-tests/test_validation.py::TestValidate::test_lineage_columns_pass_through PASSED [ 95%]
-tests/test_validation.py::TestValidate::test_rows_are_conserved PASSED   [ 97%]
-tests/test_validation.py::TestQuarantineWhere::test_splits_rows_and_attaches_reason PASSED [ 98%]
-tests/test_validation.py::TestQuarantineWhere::test_missing_mask_values_count_as_pass PASSED [100%]
+tests/test_admin_sql.py ................                                 [ 14%]
+tests/test_cloud_mode.py .........                                       [ 22%]
+tests/test_dashboard_api.py ......................                       [ 43%]
+tests/test_integration.py .sss                                           [ 46%]
+tests/test_pipeline_e2e.py ............                                  [ 57%]
+tests/test_resilience.py ...........                                     [ 67%]
+tests/test_transformations.py ................                           [ 82%]
+tests/test_validation.py ...................                             [100%]
 
 ================================ tests coverage ================================
 _______________ coverage: platform linux, python 3.13.16-final-0 _______________
@@ -85,9 +21,11 @@ _______________ coverage: platform linux, python 3.13.16-final-0 _______________
 Name                   Stmts   Miss  Cover   Missing
 ----------------------------------------------------
 lib/__init__.py            0      0   100%
+lib/admin_sql.py          30      0   100%
 lib/bronze.py             64      4    94%   94-95, 98-99
 lib/config.py             58      1    98%   28
 lib/contracts.py           7      0   100%
+lib/dashboard_api.py     112      3    97%   211, 220, 235
 lib/gold.py              149      4    97%   46, 253, 305-306
 lib/logging_utils.py      49      1    98%   50
 lib/silver.py            126      5    96%   31, 35, 174, 186-187
@@ -95,5 +33,5 @@ lib/source_loader.py      28      0   100%
 lib/storage.py           100      2    98%   47, 136
 lib/validation.py         81      0   100%
 ----------------------------------------------------
-TOTAL                    662     17    97%
-====================== 71 passed, 1 deselected in 11.10s =======================
+TOTAL                    804     20    98%
+================ 106 passed, 3 skipped, 1 deselected in 11.65s =================
