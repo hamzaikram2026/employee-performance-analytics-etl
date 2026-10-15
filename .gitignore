@@ -259,3 +259,4 @@ tfplan
 .venv/
 sampleData/
 !backend/acme-perf-etl/lib/
+.deps/

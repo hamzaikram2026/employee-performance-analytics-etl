@@ -15,7 +15,14 @@ import os
 import sys
 from typing import Any
 
-from lib import bronze, gold, silver
+# LocalStack hot-reload mounts this folder as-is, without the pip-installed packages from the zip.
+# Dependencies are vendored into the hidden .deps/ folder for that case only; the AWS zip excludes
+# dot-folders and installs requirements.txt itself, so this path is never used there.
+_DEPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".deps")
+if os.getenv("AWS_LAMBDA_FUNCTION_NAME") and os.path.isdir(_DEPS):
+    sys.path.insert(0, _DEPS)
+
+from lib import bronze, gold, silver  # noqa: E402
 from lib.config import Config
 from lib.logging_utils import RunAudit, get_logger, log_event
 from lib.storage import DataLake, PostgresSource
