@@ -20,6 +20,19 @@ training and attrition.
 
 ---
 
+### Data flow: one pipeline run
+
+```
+ SOURCES                    LAMBDA (Python + Pandas)                         CONSUMERS
+┌──────────────┐     ┌────────┐   ┌────────┐   ┌──────┐            ┌──────────────────┐
+│ Aurora (7 HR │──┐  │ BRONZE │──►│ SILVER │──►│ GOLD │──────────► │ Jupyter notebook │
+│ tables)      │  ├─►│  raw   │   │ clean  │   │ 9    │            │ Live dashboard   │
+│ S3 landing   │──┘  │ copy   │   │ valid  │   │tables│            │ Read-only API    │
+│ (783 JSONL)  │     └────────┘   └───┬────┘   └──────┘            └──────────────────┘
+└──────────────┘                      ▼
+                                 QUARANTINE (bad rows + reason)
+           Every step writes logs + an audit record (_audit) → lineage
+
 ## Requirements traceability
 
 | Requirement | Where it is met |
